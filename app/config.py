@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     mqtt_tls_key_file: str | None = None
 
     log_level: str = "INFO"
+    otel_service_name: str = "mqtt-recorder"
+    otel_log_file: str = "/app/logs/otel.log"
 
     @property
     def db_password(self) -> str:

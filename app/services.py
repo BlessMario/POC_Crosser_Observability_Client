@@ -1,12 +1,15 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from asyncio_mqtt import Client, MqttError
 from sqlalchemy import insert, select
 from .config import settings
 from .db import SessionLocal
 from .models import RecordingSession, MqttMessage
+
+logger = logging.getLogger(__name__)
 
 class RecorderService:
     def __init__(self):
@@ -16,22 +19,35 @@ class RecorderService:
 
     def is_running(self) -> bool:
         return self._task is not None and not self._task.done()
-
+    
     def start(self, session_id: str):
         if self.is_running():
             raise RuntimeError("Recorder already running")
         self._stop.clear()
         self._session_id = session_id
-        self._task = asyncio.create_task(self._run(session_id))
+        loop = asyncio.get_running_loop()
+        self._task = loop.create_task(self._run(session_id))
+
+
+    # def start(self, session_id: str):
+    #     if self.is_running():
+    #         raise RuntimeError("Recorder already running")
+    #     self._stop.clear()
+    #     self._session_id = session_id
+    #     self._task = asyncio.create_task(self._run(session_id))
 
     async def stop(self):
         self._stop.set()
         if self._task:
-            await self._task
+            try:
+                await self._task
+            except Exception:
+                logger.exception("Recorder task failed while stopping", extra={"session_id": self._session_id})
         self._task = None
         self._session_id = None
 
     async def _run(self, session_id: str):
+        logger.info("Recorder starting", extra={"session_id": session_id})
         # load topic filters from DB
         with SessionLocal() as db:
             sess = db.get(RecordingSession, session_id)
@@ -54,15 +70,27 @@ class RecorderService:
                 client_id=settings.mqtt_client_id,
                 tls_context=ssl_ctx,
             ) as client:
-                for t in topic_filters:
-                    await client.subscribe(t)
+                logger.info(
+                    "Connected to MQTT broker",
+                    extra={"session_id": session_id, "mqtt_host": settings.mqtt_host, "mqtt_port": settings.mqtt_port},
+                )
 
                 async with client.unfiltered_messages() as messages:
+                    for t in topic_filters:
+                        await client.subscribe(t)
+                        logger.info("Subscribed topic filter", extra={"session_id": session_id, "topic_filter": t})
+
                     while not self._stop.is_set():
                         try:
                             msg = await asyncio.wait_for(messages.__anext__(), timeout=0.5)
                         except asyncio.TimeoutError:
                             continue
+                        except StopAsyncIteration:
+                            logger.warning(
+                                "MQTT message stream ended",
+                                extra={"session_id": session_id},
+                            )
+                            break
 
                         # Enforce JSON storage: if not JSON, wrap into {"_raw": "..."}
                         try:
@@ -75,7 +103,7 @@ class RecorderService:
                         item = {
                             "session_id": session_id,
                             "ts": datetime.now(timezone.utc),
-                            "topic": msg.topic,
+                            "topic": str(msg.topic),
                             "payload_json": payload_obj if isinstance(payload_obj, dict) else {"value": payload_obj},
                             "qos": int(msg.qos),
                             "retained": bool(getattr(msg, "retain", False)),
@@ -83,11 +111,15 @@ class RecorderService:
                         await queue.put(item)
 
         except MqttError as e:
-            # In a real app, log and mark session error
+            logger.exception("MQTT error in recorder", extra={"session_id": session_id, "error": str(e)})
+            raise
+        except Exception:
+            logger.exception("Unexpected recorder failure", extra={"session_id": session_id})
             raise
         finally:
             await queue.put({"_flush": True})
             await writer
+            logger.info("Recorder stopped", extra={"session_id": session_id})
 
     async def _db_writer(self, queue: asyncio.Queue[dict]):
         batch: list[dict] = []
@@ -100,9 +132,14 @@ class RecorderService:
             nonlocal batch
             if not batch:
                 return
-            with SessionLocal() as db:
-                db.execute(insert(MqttMessage), batch)
-                db.commit()
+            try:
+                with SessionLocal() as db:
+                    db.execute(insert(MqttMessage), batch)
+                    db.commit()
+                logger.info("Persisted MQTT batch", extra={"rows": len(batch)})
+            except Exception:
+                logger.exception("Failed to persist MQTT batch", extra={"rows": len(batch)})
+                raise
             batch = []
 
         while True:

@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
+import asyncio
 from .db import SessionLocal, engine
 from .models import Base, RecordingSession, MqttMessage
 from .schemas import SessionCreate, SessionOut, MessageOut
@@ -27,7 +28,7 @@ def list_sessions():
     return [SessionOut(id=str(r.id), state=r.state) for r in rows]
 
 @router.post("/sessions/{session_id}/record/start")
-def start_record(session_id: str):
+async def start_record(session_id: str):
     with SessionLocal() as db:
         s = db.get(RecordingSession, session_id)
         if not s:
@@ -35,10 +36,12 @@ def start_record(session_id: str):
         s.state = "RECORDING"
         s.started_at = datetime.now(timezone.utc)
         db.commit()
+
     try:
-        recorder.start(session_id)
+        recorder.start(session_id)  # now runs in request loop context
     except RuntimeError as e:
         raise HTTPException(409, str(e))
+
     return {"ok": True}
 
 @router.post("/sessions/{session_id}/record/stop")

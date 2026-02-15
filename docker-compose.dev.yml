@@ -23,7 +23,7 @@ services:
       - "8080:8080"   # HiveMQ CE web UI (if enabled by image; varies by version)
     volumes:
       - ./hivemq/conf:/opt/hivemq/conf
-      - ./hivemq/extensions:/opt/hivemq/extensions
+      # - ./hivemq/extensions:/opt/hivemq/extensions
     environment:
       # keep it simple for dev; adjust later if you add auth
       HIVEMQ_LOG_LEVEL: INFO
@@ -47,9 +47,13 @@ services:
       MQTT_TLS_INSECURE: "false"
 
       LOG_LEVEL: "INFO"
+      OTEL_SERVICE_NAME: "mqtt-recorder-dev"
+      OTEL_LOG_FILE: "/app/logs/otel.log"
     secrets:
       - postgres_password
-      - mqtt_password
+     # - mqtt_password
+    volumes:
+      - ./logs:/app/logs
     depends_on:
       db:
         condition: service_healthy

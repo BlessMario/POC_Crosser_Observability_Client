@@ -63,3 +63,8 @@ curl -X POST "http://localhost:8000/v1/sessions/<SESSION_ID>/play/stop"
 - DEV defaults to **no MQTT TLS** (MQTT_TLS=false).
 - PROD defaults to **MQTT TLS enabled** (MQTT_TLS=true) with CA + client cert/key files.
 - For simplicity, DB tables are created automatically on startup (no migrations required).
+
+## OpenTelemetry local log file
+- The API now writes OpenTelemetry-based logs to `OTEL_LOG_FILE` (default `/app/logs/otel.log`).
+- In dev compose, `./logs` on host is mounted to `/app/logs` in the API container.
+- Use this file to debug recorder flow (connect, subscribe, batch persist, and DB errors).
