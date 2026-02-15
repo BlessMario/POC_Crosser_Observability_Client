@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: mqtt
+      POSTGRES_USER: mqtt
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mqtt -d mqtt"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # HiveMQ CE (DEV broker)
+  hivemq:
+    image: hivemq/hivemq-ce:latest
+    ports:
+      - "1883:1883"   # MQTT
+      - "8080:8080"   # HiveMQ CE web UI (if enabled by image; varies by version)
+    volumes:
+      - ./hivemq/conf:/opt/hivemq/conf
+      - ./hivemq/extensions:/opt/hivemq/extensions
+    environment:
+      # keep it simple for dev; adjust later if you add auth
+      HIVEMQ_LOG_LEVEL: INFO
+
+  api:
+    build: .
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: mqtt
+      DB_USER: mqtt
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
+
+      MQTT_HOST: hivemq
+      MQTT_PORT: "1883"
+      MQTT_USERNAME: ""
+      MQTT_PASSWORD_FILE: /run/secrets/mqtt_password
+      MQTT_CLIENT_ID: "mqtt-recorder-dev"
+
+      MQTT_TLS: "false"
+      MQTT_TLS_INSECURE: "false"
+
+      LOG_LEVEL: "INFO"
+    secrets:
+      - postgres_password
+      - mqtt_password
+    depends_on:
+      db:
+        condition: service_healthy
+      hivemq:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  mqtt_password:
+    file: ./secrets/mqtt_password.txt

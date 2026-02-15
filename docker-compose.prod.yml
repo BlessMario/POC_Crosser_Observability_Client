@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: mqtt
+      POSTGRES_USER: mqtt
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mqtt -d mqtt"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # No broker container here: point to your existing PROD broker.
+  api:
+    build: .
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: mqtt
+      DB_USER: mqtt
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
+
+      MQTT_HOST: "${MQTT_HOST}"
+      MQTT_PORT: "${MQTT_PORT:-8883}"
+      MQTT_USERNAME: "${MQTT_USERNAME}"
+      MQTT_PASSWORD_FILE: /run/secrets/mqtt_password
+      MQTT_CLIENT_ID: "${MQTT_CLIENT_ID:-mqtt-recorder-prod}"
+
+      MQTT_TLS: "${MQTT_TLS:-true}"
+      MQTT_TLS_INSECURE: "${MQTT_TLS_INSECURE:-false}"
+      MQTT_TLS_CA_FILE: "${MQTT_TLS_CA_FILE:-/app/certs/prod/ca.crt}"
+      MQTT_TLS_CERT_FILE: "${MQTT_TLS_CERT_FILE:-/app/certs/prod/client.crt}"
+      MQTT_TLS_KEY_FILE: "${MQTT_TLS_KEY_FILE:-/app/certs/prod/client.key}"
+
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    secrets:
+      - postgres_password
+      - mqtt_password
+    volumes:
+      - ./certs/prod:/app/certs/prod:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  mqtt_password:
+    file: ./secrets/mqtt_password.txt
