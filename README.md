@@ -20,6 +20,9 @@ docker compose -f docker-compose.dev.yml up --build
 3) Open API docs:
 - http://localhost:8000/docs
 
+4) Open local recorder logs (host):
+- `logs/otel.log`
+
 ## Production-like run (PROD: external broker + TLS)
 - Provide broker endpoint and mount certs (see `docker-compose.prod.yml` and `.env.prod.example`).
 ```bash
@@ -67,4 +70,27 @@ curl -X POST "http://localhost:8000/v1/sessions/<SESSION_ID>/play/stop"
 ## OpenTelemetry local log file
 - The API now writes OpenTelemetry-based logs to `OTEL_LOG_FILE` (default `/app/logs/otel.log`).
 - In dev compose, `./logs` on host is mounted to `/app/logs` in the API container.
-- Use this file to debug recorder flow (connect, subscribe, batch persist, and DB errors).
+- Use this file to debug recorder flow (`Recorder starting`, `Subscribed topic filter`, `Persisted MQTT batch`, DB errors).
+
+## Troubleshooting: session is created but no messages in DB
+If `/v1/sessions/{id}` exists but `/v1/sessions/{id}/messages` is empty:
+
+1) Verify recorder is running:
+```bash
+curl -X POST "http://localhost:8000/v1/sessions/<SESSION_ID>/record/start"
+```
+
+2) Publish a test message to a subscribed topic filter.
+
+3) Stop recorder and query messages:
+```bash
+curl -X POST "http://localhost:8000/v1/sessions/<SESSION_ID>/record/stop"
+curl "http://localhost:8000/v1/sessions/<SESSION_ID>/messages?limit=50"
+```
+
+4) Check `logs/otel.log` for these events:
+- `Connected to MQTT broker`
+- `Subscribed topic filter`
+- `Persisted MQTT batch`
+
+5) If `Persisted MQTT batch` is missing, inspect nearby `ERROR` records in `logs/otel.log`.
