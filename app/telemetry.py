@@ -37,8 +37,14 @@ class FileLogExporter(LogExporter):
                 if record.attributes:
                     attrs = {str(k): v for k, v in record.attributes.items()}
 
+                ts_ns = getattr(record, "timestamp", None)
+                if isinstance(ts_ns, int) and ts_ns > 0:
+                    ts = datetime.fromtimestamp(ts_ns / 1_000_000_000, tz=timezone.utc).isoformat()
+                else:
+                    ts = datetime.now(timezone.utc).isoformat()
+
                 payload = {
-                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "ts": ts,
                     "severity": severity,
                     "body": body,
                     "attributes": attrs,
