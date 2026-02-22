@@ -39,8 +39,11 @@ class RecorderService:
     async def stop(self):
         self._stop.set()
         if self._task:
+            self._task.cancel()
             try:
                 await self._task
+            except asyncio.CancelledError:
+                logger.info("Recorder task cancelled", extra={"session_id": self._session_id})
             except Exception:
                 logger.exception("Recorder task failed while stopping", extra={"session_id": self._session_id})
         self._task = None
@@ -75,21 +78,13 @@ class RecorderService:
                     extra={"session_id": session_id, "mqtt_host": settings.mqtt_host, "mqtt_port": settings.mqtt_port},
                 )
 
-                async with client.unfiltered_messages() as messages:
+                async with client.messages() as messages:
                     for t in topic_filters:
                         await client.subscribe(t)
                         logger.info("Subscribed topic filter", extra={"session_id": session_id, "topic_filter": t})
 
-                    while not self._stop.is_set():
-                        try:
-                            msg = await asyncio.wait_for(messages.__anext__(), timeout=0.5)
-                        except asyncio.TimeoutError:
-                            continue
-                        except StopAsyncIteration:
-                            logger.warning(
-                                "MQTT message stream ended",
-                                extra={"session_id": session_id},
-                            )
+                    async for msg in messages:
+                        if self._stop.is_set():
                             break
 
                         # Enforce JSON storage: if not JSON, wrap into {"_raw": "..."}
@@ -112,6 +107,9 @@ class RecorderService:
 
         except MqttError as e:
             logger.exception("MQTT error in recorder", extra={"session_id": session_id, "error": str(e)})
+            raise
+        except asyncio.CancelledError:
+            logger.info("Recorder receive loop cancelled", extra={"session_id": session_id})
             raise
         except Exception:
             logger.exception("Unexpected recorder failure", extra={"session_id": session_id})
