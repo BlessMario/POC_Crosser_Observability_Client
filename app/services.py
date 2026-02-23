@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import base64
 import json
 import logging
 from datetime import datetime, timezone
@@ -87,13 +88,25 @@ class RecorderService:
                         if self._stop.is_set():
                             break
 
-                        # Enforce JSON storage: if not JSON, wrap into {"_raw": "..."}
+                        raw_payload = bytes(msg.payload)
+
+                        # Enforce JSON storage. For binary/non-JSON payloads (including NUL bytes),
+                        # store as base64 to avoid Postgres JSONB text constraints.
                         try:
-                            payload_obj = json.loads(msg.payload.decode("utf-8"))
+                            text_payload = raw_payload.decode("utf-8")
+                            if "\x00" in text_payload:
+                                raise ValueError("NUL byte in UTF-8 payload")
+                            payload_obj = json.loads(text_payload)
                             if not isinstance(payload_obj, (dict, list, str, int, float, bool, type(None))):
-                                payload_obj = {"_raw": msg.payload.decode("utf-8", errors="replace")}
+                                payload_obj = {
+                                    "_raw_b64": base64.b64encode(raw_payload).decode("ascii"),
+                                    "_encoding": "base64",
+                                }
                         except Exception:
-                            payload_obj = {"_raw": msg.payload.decode("utf-8", errors="replace")}
+                            payload_obj = {
+                                "_raw_b64": base64.b64encode(raw_payload).decode("ascii"),
+                                "_encoding": "base64",
+                            }
 
                         item = {
                             "session_id": session_id,
