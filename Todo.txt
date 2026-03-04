@@ -1,0 +1,6 @@
+TODO:
+=====
+
+- Wieso gibt es bei Konfiguration 350msg in 10 zwar 350 msg aber in 350s
+- Aufzeichnen von Mosquitto: test.mosquitto.org Topic #test/#
+- Wie kann ich mehrere topics aufzeichnen in unterschiedlichen Datenbank tabellen ablegen, vielleicht mit Interpretation von gewissen Inhalten. 

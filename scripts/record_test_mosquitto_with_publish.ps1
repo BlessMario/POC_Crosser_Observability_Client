@@ -8,7 +8,7 @@ param(
     [string]$ApiContainerName = "poc_crosser_observability_client-api-1",
     [switch]$PublishToLocalHiveMq,
     [int]$RecordSeconds = 10,
-    [int]$PublishCount = 35,
+    [int]$PublishCount = 350,
     [int]$MessageLimit = 50
 )
 
@@ -42,10 +42,12 @@ $publisher = Start-Job -ScriptBlock {
     param($ContainerName, $BrokerHostname, $BrokerTcpPort, $Topic, $SessionId, $Count)
 
     Start-Sleep -Seconds 2
+    $waitTime = $RecordSeconds / $Count
+    Write-Output "Publishing $Count messages to $BrokerHostname:$BrokerTcpPort on topic $Topic with session ID $SessionId and wait time of $waitTime seconds between messages..."
     for ($i = 1; $i -le $Count; $i++) {
         $payload = "session=$SessionId;msg=$i;ts=$(Get-Date -Format o)"
         docker exec $ContainerName python -c "import paho.mqtt.client as m; c=m.Client(); c.connect('$BrokerHostname',$BrokerTcpPort,60); c.publish('$Topic', '$payload'); c.disconnect()" | Out-Null
-        Start-Sleep -Seconds 1
+        Start-Sleep -Seconds $waitTime
     }
 } -ArgumentList $ApiContainerName, $BrokerHost, $BrokerPort, $PublishTopic, $sessionId, $PublishCount
 
